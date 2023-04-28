@@ -1,6 +1,7 @@
+// tslint:disable:no-console
+
 import { lazyMemoize, MINUTES } from "../../utils";
 import { Archives } from "../Archives";
-import moment from "moment-timezone";
 
 const LOOP_INTERVAL = 15 * MINUTES;
 const getArchivesRepository = lazyMemoize(() => new Archives());

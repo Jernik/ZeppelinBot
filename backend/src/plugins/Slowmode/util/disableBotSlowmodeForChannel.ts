@@ -1,11 +1,11 @@
-import { TextChannel } from "discord.js";
+import { AnyThreadChannel, GuildTextBasedChannel } from "discord.js";
 import { GuildPluginData } from "knub";
 import { SlowmodePluginType } from "../types";
 import { clearBotSlowmodeFromUserId } from "./clearBotSlowmodeFromUserId";
 
 export async function disableBotSlowmodeForChannel(
   pluginData: GuildPluginData<SlowmodePluginType>,
-  channel: TextChannel,
+  channel: Exclude<GuildTextBasedChannel, AnyThreadChannel>,
 ) {
   // Disable channel slowmode
   await pluginData.state.slowmodes.deleteChannelSlowmode(channel.id);
@@ -23,6 +23,9 @@ export async function disableBotSlowmodeForChannel(
       await pluginData.state.slowmodes.clearSlowmodeUser(channel.id, slowmodeUser.user_id);
     }
   }
+
+  // Clear cache
+  pluginData.state.channelSlowmodeCache.set(channel.id, null);
 
   return { failedUsers };
 }

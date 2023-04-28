@@ -1,4 +1,3 @@
-import { Util } from "discord.js";
 import escapeStringRegexp from "escape-string-regexp";
 import * as t from "io-ts";
 import { normalizeText } from "../../../utils/normalizeText";
@@ -11,6 +10,8 @@ interface MatchResultType {
   word: string;
   type: MatchableTextType;
 }
+
+const regexCache = new WeakMap<any, RegExp[]>();
 
 export const MatchWordsTrigger = automodTrigger<MatchResultType>()({
   configType: t.type({
@@ -49,6 +50,25 @@ export const MatchWordsTrigger = automodTrigger<MatchResultType>()({
       return;
     }
 
+    if (!regexCache.has(trigger)) {
+      const looseMatchingThreshold = Math.min(Math.max(trigger.loose_matching_threshold, 1), 64);
+      const patterns = trigger.words.map((word) => {
+        let pattern = trigger.loose_matching
+          ? [...word].map((c) => escapeStringRegexp(c)).join(`(?:\\s*|.{0,${looseMatchingThreshold})`)
+          : escapeStringRegexp(word);
+
+        if (trigger.only_full_words) {
+          pattern = `\\b${pattern}\\b`;
+        }
+
+        return pattern;
+      });
+
+      const mergedRegex = new RegExp(patterns.map((p) => `(?:${p})`).join("|"), trigger.case_sensitive ? "" : "i");
+      regexCache.set(trigger, [mergedRegex]);
+    }
+    const regexes = regexCache.get(trigger)!;
+
     for await (let [type, str] of matchMultipleTextTypesOnMessage(pluginData, trigger, context.message)) {
       if (trigger.strip_markdown) {
         str = stripMarkdown(str);
@@ -58,26 +78,12 @@ export const MatchWordsTrigger = automodTrigger<MatchResultType>()({
         str = normalizeText(str);
       }
 
-      const looseMatchingThreshold = Math.min(Math.max(trigger.loose_matching_threshold, 1), 64);
-
-      for (const word of trigger.words) {
-        // When performing loose matching, allow any amount of whitespace or up to looseMatchingThreshold number of other
-        // characters between the matched characters. E.g. if we're matching banana, a loose match could also match b a n a n a
-        let pattern = trigger.loose_matching
-          ? [...word].map((c) => escapeStringRegexp(c)).join(`(?:\\s*|.{0,${looseMatchingThreshold})`)
-          : escapeStringRegexp(word);
-
-        if (trigger.only_full_words) {
-          pattern = `\\b${pattern}\\b`;
-        }
-
-        const regex = new RegExp(pattern, trigger.case_sensitive ? "" : "i");
-        const test = regex.test(str);
-        if (test) {
+      for (const regex of regexes) {
+        if (regex.test(str)) {
           return {
             extra: {
-              word,
               type,
+              word: "",
             },
           };
         }
@@ -89,6 +95,6 @@ export const MatchWordsTrigger = automodTrigger<MatchResultType>()({
 
   renderMatchInformation({ pluginData, contexts, matchResult }) {
     const partialSummary = getTextMatchPartialSummary(pluginData, matchResult.extra.type, contexts[0]);
-    return `Matched word \`${Util.escapeInlineCode(matchResult.extra.word)}\` in ${partialSummary}`;
+    return `Matched word in ${partialSummary}`;
   },
 });

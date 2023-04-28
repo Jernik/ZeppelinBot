@@ -6,6 +6,7 @@ import { AlertAction } from "./alert";
 import { ArchiveThreadAction } from "./archiveThread";
 import { BanAction } from "./ban";
 import { ChangeNicknameAction } from "./changeNickname";
+import { ChangePermsAction } from "./changePerms";
 import { CleanAction } from "./clean";
 import { KickAction } from "./kick";
 import { LogAction } from "./log";
@@ -15,6 +16,7 @@ import { ReplyAction } from "./reply";
 import { SetAntiraidLevelAction } from "./setAntiraidLevel";
 import { SetCounterAction } from "./setCounter";
 import { SetSlowmodeAction } from "./setSlowmode";
+import { StartThreadAction } from "./startThread";
 import { WarnAction } from "./warn";
 
 export const availableActions: Record<string, AutomodActionBlueprint<any>> = {
@@ -33,7 +35,9 @@ export const availableActions: Record<string, AutomodActionBlueprint<any>> = {
   add_to_counter: AddToCounterAction,
   set_counter: SetCounterAction,
   set_slowmode: SetSlowmodeAction,
+  start_thread: StartThreadAction,
   archive_thread: ArchiveThreadAction,
+  change_perms: ChangePermsAction,
 };
 
 export const AvailableActions = t.type({
@@ -52,5 +56,7 @@ export const AvailableActions = t.type({
   add_to_counter: AddToCounterAction.configType,
   set_counter: SetCounterAction.configType,
   set_slowmode: SetSlowmodeAction.configType,
+  start_thread: StartThreadAction.configType,
   archive_thread: ArchiveThreadAction.configType,
+  change_perms: ChangePermsAction.configType,
 });

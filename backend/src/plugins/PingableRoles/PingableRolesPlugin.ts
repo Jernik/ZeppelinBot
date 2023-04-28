@@ -1,9 +1,9 @@
 import { PluginOptions } from "knub";
 import { GuildPingableRoles } from "../../data/GuildPingableRoles";
+import { makeIoTsConfigParser } from "../../pluginUtils";
 import { zeppelinGuildPlugin } from "../ZeppelinPluginBlueprint";
 import { PingableRoleDisableCmd } from "./commands/PingableRoleDisableCmd";
 import { PingableRoleEnableCmd } from "./commands/PingableRoleEnableCmd";
-import { MessageCreateDisablePingableEvt, TypingEnablePingableEvt } from "./events/ChangePingableEvts";
 import { ConfigSchema, PingableRolesPluginType } from "./types";
 
 const defaultOptions: PluginOptions<PingableRolesPluginType> = {
@@ -25,21 +25,23 @@ export const PingableRolesPlugin = zeppelinGuildPlugin<PingableRolesPluginType>(
   showInDocs: true,
   info: {
     prettyName: "Pingable roles",
+    configSchema: ConfigSchema,
   },
 
-  configSchema: ConfigSchema,
+  configParser: makeIoTsConfigParser(ConfigSchema),
   defaultOptions,
 
   // prettier-ignore
-  commands: [
+  messageCommands: [
     PingableRoleEnableCmd,
     PingableRoleDisableCmd,
   ],
 
   // prettier-ignore
   events: [
-    TypingEnablePingableEvt,
-    MessageCreateDisablePingableEvt,
+    // FIXME: Temporarily disabled for performance. This is very buggy anyway, so consider removing in the future.
+    // TypingEnablePingableEvt,
+    // MessageCreateDisablePingableEvt,
   ],
 
   beforeLoad(pluginData) {

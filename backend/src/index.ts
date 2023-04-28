@@ -1,40 +1,45 @@
-import { Client, Constants, Intents, Options, TextChannel, ThreadChannel } from "discord.js";
-import { Knub, PluginError } from "knub";
-import { PluginLoadError } from "knub/dist/plugins/PluginLoadError";
-// Always use UTC internally
-// This is also enforced for the database in data/db.ts
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  Options,
+  Partials,
+  RESTEvents,
+  TextChannel,
+  ThreadChannel,
+} from "discord.js";
+import { EventEmitter } from "events";
+import { Knub, PluginError, PluginLoadError, PluginNotLoadedError } from "knub";
 import moment from "moment-timezone";
+import { performance } from "perf_hooks";
 import { AllowedGuilds } from "./data/AllowedGuilds";
 import { Configs } from "./data/Configs";
 import { connect } from "./data/db";
 import { GuildLogs } from "./data/GuildLogs";
 import { LogType } from "./data/LogType";
-import { DiscordJSError } from "./DiscordJSError";
-import "./loadEnv";
-import { logger } from "./logger";
-import { baseGuildPlugins, globalPlugins, guildPlugins } from "./plugins/availablePlugins";
-import { RecoverablePluginError } from "./RecoverablePluginError";
-import { SimpleError } from "./SimpleError";
-import { ZeppelinGlobalConfig, ZeppelinGuildConfig } from "./types";
-import { startUptimeCounter } from "./uptime";
-import { errorMessage, isDiscordAPIError, isDiscordHTTPError, SECONDS, sleep, successMessage } from "./utils";
-import { loadYamlSafely } from "./utils/loadYamlSafely";
-import { DecayingCounter } from "./utils/DecayingCounter";
-import { PluginNotLoadedError } from "knub/dist/plugins/PluginNotLoadedError";
-import { logRestCall } from "./restCallStats";
-import { logRateLimit } from "./rateLimitStats";
+import { runExpiredArchiveDeletionLoop } from "./data/loops/expiredArchiveDeletionLoop";
 import { runExpiringMutesLoop } from "./data/loops/expiringMutesLoop";
-import { runUpcomingRemindersLoop } from "./data/loops/upcomingRemindersLoop";
-import { runUpcomingScheduledPostsLoop } from "./data/loops/upcomingScheduledPostsLoop";
 import { runExpiringTempbansLoop } from "./data/loops/expiringTempbansLoop";
 import { runExpiringVCAlertsLoop } from "./data/loops/expiringVCAlertsLoop";
-import { runExpiredArchiveDeletionLoop } from "./data/loops/expiredArchiveDeletionLoop";
-
-if (!process.env.KEY) {
-  // tslint:disable-next-line:no-console
-  console.error("Project root .env with KEY is required!");
-  process.exit(1);
-}
+import { runPhishermanCacheCleanupLoop, runPhishermanReportingLoop } from "./data/loops/phishermanLoops";
+import { runSavedMessageCleanupLoop } from "./data/loops/savedMessageCleanupLoop";
+import { runUpcomingRemindersLoop } from "./data/loops/upcomingRemindersLoop";
+import { runUpcomingScheduledPostsLoop } from "./data/loops/upcomingScheduledPostsLoop";
+import { hasPhishermanMasterAPIKey } from "./data/Phisherman";
+import { consumeQueryStats } from "./data/queryLogger";
+import { DiscordJSError } from "./DiscordJSError";
+import { env } from "./env";
+import { logger } from "./logger";
+import { baseGuildPlugins, globalPlugins, guildPlugins } from "./plugins/availablePlugins";
+import { setProfiler } from "./profiler";
+import { logRateLimit } from "./rateLimitStats";
+import { RecoverablePluginError } from "./RecoverablePluginError";
+import { SimpleError } from "./SimpleError";
+import { startUptimeCounter } from "./uptime";
+import { errorMessage, isDiscordAPIError, isDiscordHTTPError, MINUTES, SECONDS, sleep, successMessage } from "./utils";
+import { DecayingCounter } from "./utils/DecayingCounter";
+import { enableProfiling } from "./utils/easyProfiler";
+import { loadYamlSafely } from "./utils/loadYamlSafely";
 
 // Error handling
 let recentPluginErrors = 0;
@@ -56,15 +61,15 @@ const SAFE_TO_IGNORE_ERIS_ERROR_CODES = [
 const SAFE_TO_IGNORE_ERIS_ERROR_MESSAGES = ["Server didn't acknowledge previous heartbeat, possible lost connection"];
 
 function errorHandler(err) {
-  const guildName = err.guild?.name || "Global";
-  const guildId = err.guild?.id || "0";
+  const guildId = err.guild?.id || err.guildId || "0";
+  const guildName = err.guild?.name || (guildId && guildId !== "0" ? "Unknown" : "Global");
 
   if (err instanceof RecoverablePluginError) {
     // Recoverable plugin errors can be, well, recovered from.
     // Log it in the console as a warning and post a warning to the guild's log.
 
     // tslint:disable:no-console
-    console.warn(`${guildName}: [${err.code}] ${err.message}`);
+    console.warn(`${guildId} ${guildName}: [${err.code}] ${err.message}`);
 
     if (err.guild) {
       const logs = new GuildLogs(err.guild.id);
@@ -160,32 +165,47 @@ for (const [i, part] of actualVersionParts.entries()) {
   throw new SimpleError(`Unsupported Node.js version! Must be at least ${REQUIRED_NODE_VERSION}`);
 }
 
+// Always use UTC internally
+// This is also enforced for the database in data/db.ts
 moment.tz.setDefault("UTC");
+
+// Blocking check
+let avgTotal = 0;
+let avgCount = 0;
+let lastCheck = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  let diff = Math.max(0, now - lastCheck);
+  if (diff < 5) diff = 0;
+  avgTotal += diff;
+  avgCount++;
+  lastCheck = now;
+}, 500);
+setInterval(() => {
+  const avgBlocking = avgTotal / (avgCount || 1);
+  // FIXME: Debug
+  // tslint:disable-next-line:no-console
+  console.log(`Average blocking in the last 5min: ${avgBlocking / avgTotal}ms`);
+  avgTotal = 0;
+  avgCount = 0;
+}, 5 * 60 * 1000);
 
 logger.info("Connecting to database");
 connect().then(async () => {
-  const RequestHandler = require("discord.js/src/rest/RequestHandler.js");
-  const originalPush = RequestHandler.prototype.push;
-  // tslint:disable-next-line:only-arrow-functions
-  RequestHandler.prototype.push = function (...args) {
-    const request = args[0];
-    logRestCall(request.method, request.path);
-    return originalPush.call(this, ...args);
-  };
-
   const client = new Client({
-    partials: ["USER", "CHANNEL", "GUILD_MEMBER", "MESSAGE", "REACTION"],
+    partials: [Partials.User, Partials.Channel, Partials.GuildMember, Partials.Message, Partials.Reaction],
 
     makeCache: Options.cacheWithLimits({
-      ...Options.defaultMakeCacheSettings,
-      MessageManager: 0,
-      GuildMemberManager: 5000,
-      BaseGuildEmojiManager: 1000,
+      ...Options.DefaultMakeCacheSettings,
+      MessageManager: 1,
+      // GuildMemberManager: 15000,
       GuildInviteManager: 0,
     }),
 
-    restGlobalRateLimit: 50,
-    // restTimeOffset: 1000,
+    rest: {
+      // globalRequestsPerSecond: 50,
+      // offset: 1000,
+    },
 
     // Disable mentions by default
     allowedMentions: {
@@ -196,24 +216,26 @@ connect().then(async () => {
     },
     intents: [
       // Privileged
-      Intents.FLAGS.GUILD_MEMBERS,
-      // Intents.FLAGS.GUILD_PRESENCES,
-      Intents.FLAGS.GUILD_MESSAGE_TYPING,
+      GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.MessageContent,
+      // GatewayIntentBits.GuildPresences,
 
       // Regular
-      Intents.FLAGS.DIRECT_MESSAGES,
-      Intents.FLAGS.GUILD_BANS,
-      Intents.FLAGS.GUILD_EMOJIS_AND_STICKERS,
-      Intents.FLAGS.GUILD_INVITES,
-      Intents.FLAGS.GUILD_MESSAGE_REACTIONS,
-      Intents.FLAGS.GUILD_MESSAGES,
-      Intents.FLAGS.GUILDS,
-      Intents.FLAGS.GUILD_VOICE_STATES,
+      GatewayIntentBits.GuildMessageTyping,
+      GatewayIntentBits.DirectMessages,
+      GatewayIntentBits.GuildModeration,
+      GatewayIntentBits.GuildEmojisAndStickers,
+      GatewayIntentBits.GuildInvites,
+      GatewayIntentBits.GuildMessageReactions,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildVoiceStates,
     ],
   });
-  client.setMaxListeners(200);
+  // FIXME: TS doesn't see Client as a child of EventEmitter for some reason
+  (client as unknown as EventEmitter).setMaxListeners(200);
 
-  client.on(Constants.Events.RATE_LIMIT, (data) => {
+  client.rest.on(RESTEvents.RateLimited, (data) => {
     // tslint:disable-next-line:no-console
     // console.log(`[DEBUG] [RATE_LIMIT] ${JSON.stringify(data)}`);
   });
@@ -221,7 +243,7 @@ connect().then(async () => {
   const safe429DecayInterval = 5 * SECONDS;
   const safe429MaxCount = 5;
   const safe429Counter = new DecayingCounter(safe429DecayInterval);
-  client.on(Constants.Events.DEBUG, (errorText) => {
+  client.on(Events.Debug, (errorText) => {
     if (!errorText.includes("429")) {
       return;
     }
@@ -244,7 +266,7 @@ connect().then(async () => {
   const allowedGuilds = new AllowedGuilds();
   const guildConfigs = new Configs();
 
-  const bot = new Knub<ZeppelinGuildConfig, ZeppelinGlobalConfig>(client, {
+  const bot = new Knub(client, {
     guildPlugins,
     globalPlugins,
 
@@ -285,7 +307,11 @@ connect().then(async () => {
         const row = await guildConfigs.getActiveByKey(key);
         if (row) {
           try {
-            return loadYamlSafely(row.config);
+            const loaded = loadYamlSafely(row.config);
+            // Remove deprecated properties some may still have in their config
+            delete loaded.success_emoji;
+            delete loaded.error_emoji;
+            return loaded;
           } catch (err) {
             logger.error(`Error while loading config "${key}": ${err.message}`);
             return {};
@@ -315,6 +341,7 @@ connect().then(async () => {
       sendSuccessMessageFn(channel, body) {
         const guildId =
           channel instanceof TextChannel || channel instanceof ThreadChannel ? channel.guild.id : undefined;
+        // @ts-expect-error
         const emoji = guildId ? bot.getLoadedGuild(guildId)!.config.success_emoji : undefined;
         channel.send(successMessage(body, emoji));
       },
@@ -322,6 +349,7 @@ connect().then(async () => {
       sendErrorMessageFn(channel, body) {
         const guildId =
           channel instanceof TextChannel || channel instanceof ThreadChannel ? channel.guild.id : undefined;
+        // @ts-expect-error
         const emoji = guildId ? bot.getLoadedGuild(guildId)!.config.error_emoji : undefined;
         channel.send(errorMessage(body, emoji));
       },
@@ -332,7 +360,7 @@ connect().then(async () => {
     startUptimeCounter();
   });
 
-  client.on(Constants.Events.RATE_LIMIT, (data) => {
+  client.rest.on(RESTEvents.RateLimited, (data) => {
     logRateLimit(data);
   });
 
@@ -348,10 +376,50 @@ connect().then(async () => {
     runExpiringVCAlertsLoop();
     await sleep(10 * SECONDS);
     runExpiredArchiveDeletionLoop();
+    await sleep(10 * SECONDS);
+    runSavedMessageCleanupLoop();
+
+    if (hasPhishermanMasterAPIKey()) {
+      await sleep(10 * SECONDS);
+      runPhishermanCacheCleanupLoop();
+      await sleep(10 * SECONDS);
+      runPhishermanReportingLoop();
+    }
   });
+
+  setProfiler(bot.profiler);
+  if (process.env.PROFILING === "true") {
+    enableProfiling();
+  }
+
+  let lowestGlobalRemaining = Infinity;
+  setInterval(() => {
+    lowestGlobalRemaining = Math.min(lowestGlobalRemaining, (client as any).rest.globalRemaining);
+  }, 100);
+  setInterval(() => {
+    // FIXME: Debug
+    if (lowestGlobalRemaining < 30) {
+      // tslint:disable-next-line:no-console
+      console.log("[DEBUG] Lowest global remaining in the past 15 seconds:", lowestGlobalRemaining);
+    }
+    lowestGlobalRemaining = Infinity;
+  }, 15000);
+
+  setInterval(() => {
+    const queryStatsMap = consumeQueryStats();
+    const entries = Array.from(queryStatsMap.entries());
+    entries.sort((a, b) => b[1] - a[1]);
+    const topEntriesStr = entries
+      .slice(0, 5)
+      .map(([key, count]) => `${count}x ${key}`)
+      .join("\n");
+    // FIXME: Debug
+    // tslint:disable-next-line:no-console
+    console.log(`Top query entries in the past 5 minutes:\n${topEntriesStr}`);
+  }, 5 * MINUTES);
 
   bot.initialize();
   logger.info("Bot Initialized");
   logger.info("Logging in...");
-  await client.login(process.env.TOKEN);
+  await client.login(env.BOT_TOKEN);
 });

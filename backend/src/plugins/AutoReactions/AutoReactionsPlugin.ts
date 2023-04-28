@@ -1,6 +1,7 @@
 import { PluginOptions } from "knub";
 import { GuildAutoReactions } from "../../data/GuildAutoReactions";
 import { GuildSavedMessages } from "../../data/GuildSavedMessages";
+import { makeIoTsConfigParser } from "../../pluginUtils";
 import { trimPluginDescription } from "../../utils";
 import { LogsPlugin } from "../Logs/LogsPlugin";
 import { zeppelinGuildPlugin } from "../ZeppelinPluginBlueprint";
@@ -31,14 +32,19 @@ export const AutoReactionsPlugin = zeppelinGuildPlugin<AutoReactionsPluginType>(
     description: trimPluginDescription(`
       Allows setting up automatic reactions to all new messages on a channel
     `),
+    configSchema: ConfigSchema,
   },
 
-  dependencies: () => [LogsPlugin],
-  configSchema: ConfigSchema,
+  // prettier-ignore
+  dependencies: () => [
+    LogsPlugin,
+  ],
+
+  configParser: makeIoTsConfigParser(ConfigSchema),
   defaultOptions,
 
   // prettier-ignore
-  commands: [
+  messageCommands: [
     NewAutoReactionsCmd,
     DisableAutoReactionsCmd,
   ],
@@ -49,7 +55,10 @@ export const AutoReactionsPlugin = zeppelinGuildPlugin<AutoReactionsPluginType>(
   ],
 
   beforeLoad(pluginData) {
-    pluginData.state.savedMessages = GuildSavedMessages.getGuildInstance(pluginData.guild.id);
-    pluginData.state.autoReactions = GuildAutoReactions.getGuildInstance(pluginData.guild.id);
+    const { state, guild } = pluginData;
+
+    state.savedMessages = GuildSavedMessages.getGuildInstance(guild.id);
+    state.autoReactions = GuildAutoReactions.getGuildInstance(guild.id);
+    state.cache = new Map();
   },
 });

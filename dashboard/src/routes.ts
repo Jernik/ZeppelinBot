@@ -1,5 +1,5 @@
 import Vue from "vue";
-import VueRouter, { RouteConfig } from "vue-router";
+import VueRouter from "vue-router";
 import { authGuard, authRedirectGuard, loginCallbackGuard } from "./auth";
 
 Vue.use(VueRouter);
@@ -85,6 +85,10 @@ export const router = new VueRouter({
         {
           path: "guilds/:guildId/access",
           component: () => import("./components/dashboard/GuildAccess.vue"),
+        },
+        {
+          path: "guilds/:guildId/import-export",
+          component: () => import("./components/dashboard/GuildImportExport.vue"),
         },
       ],
     },

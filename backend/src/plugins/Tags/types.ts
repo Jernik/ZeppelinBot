@@ -1,5 +1,5 @@
 import * as t from "io-ts";
-import { BasePluginType, typedGuildCommand, typedGuildEventListener } from "knub";
+import { BasePluginType, guildPluginEventListener, guildPluginMessageCommand } from "knub";
 import { GuildArchives } from "../../data/GuildArchives";
 import { GuildLogs } from "../../data/GuildLogs";
 import { GuildSavedMessages } from "../../data/GuildSavedMessages";
@@ -54,11 +54,19 @@ export interface TagsPluginType extends BasePluginType {
     logs: GuildLogs;
 
     onMessageCreateFn;
-    onMessageDeleteFn;
 
     tagFunctions: any;
   };
 }
 
-export const tagsCmd = typedGuildCommand<TagsPluginType>();
-export const tagsEvt = typedGuildEventListener<TagsPluginType>();
+export interface TemplateFunction {
+  name: string;
+  description: string;
+  arguments: string[];
+  returnValue: string;
+  signature?: string;
+  examples?: string[];
+}
+
+export const tagsCmd = guildPluginMessageCommand<TagsPluginType>();
+export const tagsEvt = guildPluginEventListener<TagsPluginType>();

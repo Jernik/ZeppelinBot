@@ -1,7 +1,7 @@
-import { MessageEmbed, Snowflake, TextChannel } from "discord.js";
+import { APIEmbed } from "discord.js";
 import { commandTypeHelpers as ct } from "../../../commandTypes";
 import { sendErrorMessage, sendSuccessMessage } from "../../../pluginUtils";
-import { trimLines } from "../../../utils";
+import { isValidEmbed, trimLines } from "../../../utils";
 import { parseColor } from "../../../utils/parseColor";
 import { rgbToInt } from "../../../utils/rgbToInt";
 import { postCmd } from "../types";
@@ -20,15 +20,10 @@ export const EditEmbedCmd = postCmd({
     title: ct.string({ option: true }),
     content: ct.string({ option: true }),
     color: ct.string({ option: true }),
+    raw: ct.bool({ option: true, isSwitch: true, shortcut: "r" }),
   },
 
   async run({ message: msg, args, pluginData }) {
-    const savedMessage = await pluginData.state.savedMessages.find(args.message.messageId);
-    if (!savedMessage) {
-      sendErrorMessage(pluginData, msg.channel, "Unknown message");
-      return;
-    }
-
     const content = args.content || args.maincontent;
 
     let color: number | null = null;
@@ -42,17 +37,40 @@ export const EditEmbedCmd = postCmd({
       }
     }
 
-    const embed: MessageEmbed = savedMessage.data.embeds![0] as MessageEmbed;
+    const targetMessage = await args.message.channel.messages.fetch(args.message.messageId);
+    if (!targetMessage) {
+      sendErrorMessage(pluginData, msg.channel, "Unknown message");
+      return;
+    }
+
+    let embed: APIEmbed = targetMessage.embeds![0]?.toJSON() ?? { fields: [] };
     if (args.title) embed.title = args.title;
-    if (content) embed.description = formatContent(content);
     if (color) embed.color = color;
 
-    (pluginData.guild.channels.cache.get(savedMessage.channel_id as Snowflake) as TextChannel).messages.edit(
-      savedMessage.id as Snowflake,
-      {
-        embeds: [embed],
-      },
-    );
+    if (content) {
+      if (args.raw) {
+        let parsed;
+        try {
+          parsed = JSON.parse(content);
+        } catch (e) {
+          sendErrorMessage(pluginData, msg.channel, `Syntax error in embed JSON: ${e.message}`);
+          return;
+        }
+
+        if (!isValidEmbed(parsed)) {
+          sendErrorMessage(pluginData, msg.channel, "Embed is not valid");
+          return;
+        }
+
+        embed = Object.assign({}, embed, parsed);
+      } else {
+        embed.description = formatContent(content);
+      }
+    }
+
+    args.message.channel.messages.edit(targetMessage.id, {
+      embeds: [embed],
+    });
     await sendSuccessMessage(pluginData, msg.channel, "Embed edited");
 
     if (args.content) {

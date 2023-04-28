@@ -1,7 +1,9 @@
-import { lazyMemoize, MINUTES } from "../../utils";
+// tslint:disable:no-console
+
 import moment from "moment-timezone";
-import { emitGuildEvent, hasGuildEventListener } from "../GuildEvents";
+import { lazyMemoize, MINUTES } from "../../utils";
 import { Reminder } from "../entities/Reminder";
+import { emitGuildEvent, hasGuildEventListener } from "../GuildEvents";
 import { Reminders } from "../Reminders";
 import Timeout = NodeJS.Timeout;
 

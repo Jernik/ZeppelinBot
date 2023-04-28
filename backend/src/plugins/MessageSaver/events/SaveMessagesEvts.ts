@@ -1,9 +1,7 @@
-import { Constants, Message, MessageType, Snowflake } from "discord.js";
+import { Message, MessageType } from "discord.js";
 import { messageSaverEvt } from "../types";
-import { SECONDS } from "../../../utils";
-import moment from "moment-timezone";
 
-const AFFECTED_MESSAGE_TYPES: MessageType[] = ["DEFAULT", "REPLY", "APPLICATION_COMMAND"];
+const AFFECTED_MESSAGE_TYPES: MessageType[] = [MessageType.Default, MessageType.Reply, MessageType.ChatInputCommand];
 
 export const MessageCreateEvt = messageSaverEvt({
   event: "messageCreate",
@@ -11,12 +9,12 @@ export const MessageCreateEvt = messageSaverEvt({
   allowSelf: true,
 
   async listener(meta) {
-    if (!AFFECTED_MESSAGE_TYPES.includes(meta.args.message.type)) {
+    // Don't save partial messages
+    if (meta.args.message.partial) {
       return;
     }
 
-    // Don't save partial messages
-    if (meta.args.message.partial) {
+    if (!AFFECTED_MESSAGE_TYPES.includes(meta.args.message.type)) {
       return;
     }
 
@@ -30,11 +28,11 @@ export const MessageUpdateEvt = messageSaverEvt({
   allowSelf: true,
 
   async listener(meta) {
-    if (meta.args.newMessage.type !== "DEFAULT" && meta.args.newMessage.type !== "REPLY") {
+    if (meta.args.newMessage.partial) {
       return;
     }
 
-    if (meta.args.oldMessage?.partial) {
+    if (!AFFECTED_MESSAGE_TYPES.includes(meta.args.newMessage.type)) {
       return;
     }
 
@@ -48,12 +46,11 @@ export const MessageDeleteEvt = messageSaverEvt({
   allowSelf: true,
 
   async listener(meta) {
-    const msg = meta.args.message as Message;
-    if (msg.type != null && meta.args.message.type !== "DEFAULT" && meta.args.message.type !== "REPLY") {
+    if (!meta.args.message.partial && !AFFECTED_MESSAGE_TYPES.includes(meta.args.message.type)) {
       return;
     }
 
-    await meta.pluginData.state.savedMessages.markAsDeleted(msg.id);
+    await meta.pluginData.state.savedMessages.markAsDeleted(meta.args.message.id);
   },
 });
 
@@ -63,7 +60,8 @@ export const MessageDeleteBulkEvt = messageSaverEvt({
   allowSelf: true,
 
   async listener(meta) {
-    const ids = meta.args.messages.map((m) => m.id);
+    const affectedMessages = meta.args.messages.filter((m) => m.partial || AFFECTED_MESSAGE_TYPES.includes(m.type));
+    const ids = affectedMessages.map((m) => m.id);
     await meta.pluginData.state.savedMessages.markBulkAsDeleted(ids);
   },
 });

@@ -1,10 +1,9 @@
 import { ApiPermissions } from "@shared/apiPermissions";
 import { getRepository, Repository } from "typeorm";
-import { BaseRepository } from "./BaseRepository";
-import { ApiPermissionAssignment } from "./entities/ApiPermissionAssignment";
-import { Permissions } from "discord.js";
 import { ApiAuditLog } from "./ApiAuditLog";
 import { AuditLogEventTypes } from "./apiAuditLogTypes";
+import { BaseRepository } from "./BaseRepository";
+import { ApiPermissionAssignment } from "./entities/ApiPermissionAssignment";
 
 export enum ApiPermissionTypes {
   User = "USER",
@@ -80,7 +79,8 @@ export class ApiPermissionAssignments extends BaseRepository {
       .createQueryBuilder()
       .where("expires_at IS NOT NULL")
       .andWhere("expires_at <= NOW()")
-      .delete();
+      .delete()
+      .execute();
   }
 
   async applyOwnerChange(guildId: string, newOwnerId: string) {

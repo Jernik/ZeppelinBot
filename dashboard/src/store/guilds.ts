@@ -1,8 +1,7 @@
-import { get, post } from "../api";
-import { Module } from "vuex";
-import { GuildState, LoadStatus, RootState } from "./types";
-import { ApiPermissions } from "@shared/apiPermissions";
 import Vue from "vue";
+import { Module } from "vuex";
+import { get, post } from "../api";
+import { GuildState, LoadStatus, RootState } from "./types";
 
 export const GuildStore: Module<GuildState, RootState> = {
   namespaced: true,
@@ -65,6 +64,17 @@ export const GuildStore: Module<GuildState, RootState> = {
     async setTargetPermissions({ commit }, { guildId, targetId, type, permissions, expiresAt }) {
       await post(`guilds/${guildId}/set-target-permissions`, { guildId, targetId, type, permissions, expiresAt });
       commit("setTargetPermissions", { guildId, targetId, type, permissions, expiresAt });
+    },
+
+    async importData({ commit }, { guildId, data, caseHandlingMode }) {
+      return post(`guilds/${guildId}/import`, {
+        data,
+        caseHandlingMode,
+      });
+    },
+
+    async exportData({ commit }, { guildId }) {
+      return post(`guilds/${guildId}/export`);
     },
   },
 

@@ -1,30 +1,29 @@
 import {
+  APIEmbed,
+  ChannelType,
   Client,
-  Constants,
   DiscordAPIError,
+  EmbedData,
+  EmbedType,
   Emoji,
+  escapeCodeBlock,
   Guild,
-  GuildAuditLogs,
-  GuildAuditLogsEntry,
+  GuildBasedChannel,
   GuildChannel,
   GuildMember,
+  GuildTextBasedChannel,
   Invite,
   InviteGuild,
   LimitedCollection,
   Message,
-  MessageAttachment,
-  MessageEmbed,
-  MessageEmbedOptions,
+  MessageCreateOptions,
   MessageMentionOptions,
-  MessageOptions,
   PartialChannelData,
   PartialMessage,
   Snowflake,
   Sticker,
-  TextChannel,
-  ThreadChannel,
+  TextBasedChannel,
   User,
-  Util,
 } from "discord.js";
 import emojiRegex from "emoji-regex";
 import { either } from "fp-ts/lib/Either";
@@ -35,16 +34,17 @@ import humanizeDuration from "humanize-duration";
 import * as t from "io-ts";
 import { isEqual } from "lodash";
 import moment from "moment-timezone";
+import { performance } from "perf_hooks";
 import tlds from "tlds";
 import tmp from "tmp";
 import { URL } from "url";
+import { z, ZodError } from "zod";
 import { ISavedMessageAttachmentData, SavedMessage } from "./data/entities/SavedMessage";
+import { getProfiler } from "./profiler";
 import { SimpleCache } from "./SimpleCache";
-import { ChannelTypeStrings } from "./types";
 import { sendDM } from "./utils/sendDM";
 import { waitForButtonConfirm } from "./utils/waitForInteraction";
 import { decodeAndValidateStrict, StrictValidationError } from "./validatorUtils";
-import { z, ZodError } from "zod";
 
 const fsp = fs.promises;
 
@@ -175,7 +175,7 @@ function tDeepPartialProp(prop: any) {
   }
 }
 
-export function getScalarDifference<T>(
+export function getScalarDifference<T extends object>(
   base: T,
   object: T,
   ignoreKeys: string[] = [],
@@ -254,7 +254,7 @@ export function nonNullish<V>(v: V): v is NonNullable<V> {
 export type GuildInvite = Invite & { guild: InviteGuild | Guild };
 export type GroupDMInvite = Invite & {
   channel: PartialChannelData;
-  type: typeof Constants.ChannelTypes.GROUP_DM;
+  type: typeof ChannelType.GroupDM;
 };
 
 /**
@@ -325,7 +325,7 @@ export const zEmbedInput = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   url: z.string().optional(),
-  timestamp: z.number().optional(),
+  timestamp: z.string().optional(),
   color: z.number().optional(),
 
   footer: z.optional(
@@ -388,8 +388,7 @@ export const zEmbedInput = z.object({
     .nullable(),
 });
 
-export type EmbedWith<T extends keyof MessageEmbedOptions> = MessageEmbedOptions &
-  Pick<Required<MessageEmbedOptions>, T>;
+export type EmbedWith<T extends keyof APIEmbed> = APIEmbed & Pick<Required<APIEmbed>, T>;
 
 export const zStrictMessageContent = z.object({
   content: z.string().optional(),
@@ -402,7 +401,7 @@ export type ZStrictMessageContent = z.infer<typeof zStrictMessageContent>;
 export type StrictMessageContent = {
   content?: string;
   tts?: boolean;
-  embeds?: MessageEmbedOptions[];
+  embeds?: APIEmbed[];
 };
 
 export const tStrictMessageContent = t.type({
@@ -569,7 +568,7 @@ export function convertMSToDelayString(ms: number): string {
   return result;
 }
 
-export function successMessage(str, emoji = "<:zep_check:650361014180904971>") {
+export function successMessage(str: string, emoji = "<:zep_check:650361014180904971>") {
   return emoji ? `${emoji} ${str}` : str;
 }
 
@@ -579,7 +578,10 @@ export function errorMessage(str, emoji = "⚠") {
 
 export function get(obj, path, def?): any {
   let cursor = obj;
-  const pathParts = path.split(".");
+  const pathParts = path
+    .split(".")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
   for (const part of pathParts) {
     // hasOwnProperty check here is necessary to prevent prototype traversal in tags
     if (!cursor.hasOwnProperty(part)) return def;
@@ -633,63 +635,6 @@ export function sleep(ms: number): Promise<void> {
   });
 }
 
-/**
- * Attempts to find a relevant audit log entry for the given user and action
- */
-const auditLogNextAttemptAfterFail: Map<string, number> = new Map();
-const AUDIT_LOG_FAIL_COOLDOWN = 2 * MINUTES;
-
-export async function findRelevantAuditLogEntry(
-  guild: Guild,
-  actionType: number,
-  userId: string,
-  attempts: number = 3,
-  attemptDelay: number = 3000,
-): Promise<GuildAuditLogsEntry | null> {
-  if (auditLogNextAttemptAfterFail.has(guild.id) && auditLogNextAttemptAfterFail.get(guild.id)! > Date.now()) {
-    return null;
-  }
-
-  let auditLogs: GuildAuditLogs | null = null;
-  try {
-    auditLogs = await guild.fetchAuditLogs({ limit: 5, type: actionType });
-  } catch (e) {
-    if (isDiscordAPIError(e) && e.code === 50013) {
-      // If we don't have permission to read audit log, set audit log requests on cooldown
-      auditLogNextAttemptAfterFail.set(guild.id, Date.now() + AUDIT_LOG_FAIL_COOLDOWN);
-    } else if (isDiscordHTTPError(e) && e.code === 500) {
-      // Ignore internal server errors which seem to be pretty common with audit log requests
-    } else if (e.message.startsWith("Request timed out")) {
-      // Ignore timeouts, try again next loop
-    } else {
-      throw e;
-    }
-  }
-
-  const entries = auditLogs ? [...auditLogs.entries.values()] : [];
-
-  entries.sort((a, b) => {
-    if (a.createdAt > b.createdAt) return -1;
-    if (a.createdAt > b.createdAt) return 1;
-    return 0;
-  });
-
-  const cutoffTS = Date.now() - 1000 * 60 * 2;
-
-  const relevantEntry = entries.find((entry) => {
-    return (entry.target as { id }).id === userId && entry.createdTimestamp >= cutoffTS;
-  });
-
-  if (relevantEntry) {
-    return relevantEntry;
-  } else if (attempts > 0) {
-    await sleep(attemptDelay);
-    return findRelevantAuditLogEntry(guild, actionType, userId, attempts - 1, attemptDelay);
-  } else {
-    return null;
-  }
-}
-
 const realLinkRegex = /https?:\/\/\S+/; // http://anything or https://anything
 const plainLinkRegex = /((?!https?:\/\/)\S)+\.\S+/; // anything.anything, without http:// or https:// preceding it
 // Both of the above, with precedence on the first one
@@ -701,7 +646,7 @@ interface MatchedURL extends URL {
 }
 
 export function getUrlsInString(str: string, onlyUnique = false): MatchedURL[] {
-  let matches = str.match(urlRegex) || [];
+  let matches = [...(str.match(urlRegex) ?? [])];
   if (onlyUnique) {
     matches = unique(matches);
   }
@@ -931,7 +876,7 @@ export function chunkArray<T>(arr: T[], chunkSize): T[][] {
 
   for (let i = 0; i < arr.length; i++) {
     currentChunk.push(arr[i]);
-    if ((i !== 0 && i % chunkSize === 0) || i === arr.length - 1) {
+    if ((i !== 0 && (i + 1) % chunkSize === 0) || i === arr.length - 1) {
       chunks.push(currentChunk);
       currentChunk = [];
     }
@@ -1006,7 +951,7 @@ export function chunkMessageLines(str: string, maxChunkLength = 1990): string[] 
 }
 
 export async function createChunkedMessage(
-  channel: TextChannel | ThreadChannel | User,
+  channel: TextBasedChannel | User,
   messageText: string,
   allowedMentions?: MessageMentionOptions,
 ) {
@@ -1140,7 +1085,7 @@ export type CustomEmoji = {
   id: string;
 } & Emoji;
 
-export type UserNotificationMethod = { type: "dm" } | { type: "channel"; channel: TextChannel | ThreadChannel };
+export type UserNotificationMethod = { type: "dm" } | { type: "channel"; channel: GuildTextBasedChannel };
 
 export const disableUserNotificationStrings = ["no", "none", "off"];
 
@@ -1280,6 +1225,11 @@ export function resolveUserId(bot: Client, value: string) {
     return null;
   }
 
+  // Just a user ID?
+  if (isValidSnowflake(value)) {
+    return value;
+  }
+
   // A user mention?
   const mentionMatch = value.match(/^<@!?(\d+)>$/);
   if (mentionMatch) {
@@ -1289,13 +1239,13 @@ export function resolveUserId(bot: Client, value: string) {
   // A non-mention, full username?
   const usernameMatch = value.match(/^@?([^#]+)#(\d{4})$/);
   if (usernameMatch) {
+    const profiler = getProfiler();
+    const start = performance.now();
     const user = bot.users.cache.find((u) => u.username === usernameMatch[1] && u.discriminator === usernameMatch[2]);
-    if (user) return user.id;
-  }
-
-  // Just a user ID?
-  if (isValidSnowflake(value)) {
-    return value;
+    profiler?.addDataPoint("utils:resolveUserId:usernameMatch", performance.now() - start);
+    if (user) {
+      return user.id;
+    }
   }
 
   return null;
@@ -1451,17 +1401,21 @@ export async function resolveStickerId(bot: Client, id: Snowflake): Promise<Stic
   return fetchedSticker;
 }
 
-export async function confirm(channel: TextChannel, userId: string, content: MessageOptions): Promise<boolean> {
+export async function confirm(
+  channel: GuildTextBasedChannel,
+  userId: string,
+  content: MessageCreateOptions,
+): Promise<boolean> {
   return waitForButtonConfirm(channel, content, { restrictToId: userId });
 }
 
 export function messageSummary(msg: SavedMessage) {
   // Regular text content
-  let result = "```\n" + (msg.data.content ? Util.escapeCodeBlock(msg.data.content) : "<no text content>") + "```";
+  let result = "```\n" + (msg.data.content ? escapeCodeBlock(msg.data.content) : "<no text content>") + "```";
 
   // Rich embed
-  const richEmbed = (msg.data.embeds || []).find((e) => (e as MessageEmbed).type === "rich");
-  if (richEmbed) result += "Embed:```" + Util.escapeCodeBlock(JSON.stringify(richEmbed)) + "```";
+  const richEmbed = (msg.data.embeds || []).find((e) => (e as EmbedData).type === EmbedType.Rich);
+  if (richEmbed) result += "Embed:```" + escapeCodeBlock(JSON.stringify(richEmbed)) + "```";
 
   // Attachments
   if (msg.data.attachments && msg.data.attachments.length) {
@@ -1490,9 +1444,9 @@ export function verboseUserName(user: User | UnknownUser): string {
   return `**${user.tag}** (\`${user.id}\`)`;
 }
 
-export function verboseChannelMention(channel: GuildChannel | ThreadChannel): string {
+export function verboseChannelMention(channel: GuildBasedChannel): string {
   const plainTextName =
-    channel.type === ChannelTypeStrings.VOICE || channel.type === ChannelTypeStrings.STAGE
+    channel.type === ChannelType.GuildVoice || channel.type === ChannelType.GuildStageVoice
       ? channel.name
       : `#${channel.name}`;
   return `<#${channel.id}> (**${plainTextName}**, \`${channel.id}\`)`;
@@ -1626,7 +1580,7 @@ export function isGuildInvite(invite: Invite): invite is GuildInvite {
 }
 
 export function isGroupDMInvite(invite: Invite): invite is GroupDMInvite {
-  return invite.guild == null && invite.channel?.type === ChannelTypeStrings.GROUP;
+  return invite.guild == null && invite.channel?.type === ChannelType.GroupDM;
 }
 
 export function inviteHasCounts(invite: Invite): invite is Invite {

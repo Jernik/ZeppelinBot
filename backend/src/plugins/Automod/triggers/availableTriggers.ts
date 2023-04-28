@@ -11,9 +11,9 @@ import { KickTrigger } from "./kick";
 import { LineSpamTrigger } from "./lineSpam";
 import { LinkSpamTrigger } from "./linkSpam";
 import { MatchAttachmentTypeTrigger } from "./matchAttachmentType";
-import { MatchMimeTypeTrigger } from "./matchMimeType";
 import { MatchInvitesTrigger } from "./matchInvites";
 import { MatchLinksTrigger } from "./matchLinks";
+import { MatchMimeTypeTrigger } from "./matchMimeType";
 import { MatchRegexTrigger } from "./matchRegex";
 import { MatchWordsTrigger } from "./matchWords";
 import { MemberJoinTrigger } from "./memberJoin";
@@ -26,6 +26,11 @@ import { NoteTrigger } from "./note";
 import { RoleAddedTrigger } from "./roleAdded";
 import { RoleRemovedTrigger } from "./roleRemoved";
 import { StickerSpamTrigger } from "./stickerSpam";
+import { ThreadArchiveTrigger } from "./threadArchive";
+import { ThreadCreateTrigger } from "./threadCreate";
+import { ThreadCreateSpamTrigger } from "./threadCreateSpam";
+import { ThreadDeleteTrigger } from "./threadDelete";
+import { ThreadUnarchiveTrigger } from "./threadUnarchive";
 import { UnbanTrigger } from "./unban";
 import { UnmuteTrigger } from "./unmute";
 import { WarnTrigger } from "./warn";
@@ -52,6 +57,7 @@ export const availableTriggers: Record<string, AutomodTriggerBlueprint<any, any>
   character_spam: CharacterSpamTrigger,
   member_join_spam: MemberJoinSpamTrigger,
   sticker_spam: StickerSpamTrigger,
+  thread_create_spam: ThreadCreateSpamTrigger,
 
   counter_trigger: CounterTrigger,
 
@@ -64,6 +70,11 @@ export const availableTriggers: Record<string, AutomodTriggerBlueprint<any, any>
   unban: UnbanTrigger,
 
   antiraid_level: AntiraidLevelTrigger,
+
+  thread_create: ThreadCreateTrigger,
+  thread_delete: ThreadDeleteTrigger,
+  thread_archive: ThreadArchiveTrigger,
+  thread_unarchive: ThreadUnarchiveTrigger,
 };
 
 export const AvailableTriggers = t.type({
@@ -89,6 +100,7 @@ export const AvailableTriggers = t.type({
   character_spam: CharacterSpamTrigger.configType,
   member_join_spam: MemberJoinSpamTrigger.configType,
   sticker_spam: StickerSpamTrigger.configType,
+  thread_create_spam: ThreadCreateSpamTrigger.configType,
 
   counter_trigger: CounterTrigger.configType,
 
@@ -101,4 +113,9 @@ export const AvailableTriggers = t.type({
   unban: UnbanTrigger.configType,
 
   antiraid_level: AntiraidLevelTrigger.configType,
+
+  thread_create: ThreadCreateTrigger.configType,
+  thread_delete: ThreadDeleteTrigger.configType,
+  thread_archive: ThreadArchiveTrigger.configType,
+  thread_unarchive: ThreadUnarchiveTrigger.configType,
 });

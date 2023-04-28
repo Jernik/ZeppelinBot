@@ -1,4 +1,4 @@
-import { MessageEmbedOptions, User } from "discord.js";
+import { APIEmbed, User } from "discord.js";
 import { commandTypeHelpers as ct } from "../../../commandTypes";
 import { CaseTypes } from "../../../data/CaseTypes";
 import { CasesPlugin } from "../../../plugins/Cases/CasesPlugin";
@@ -67,6 +67,12 @@ export const CasesUserCmd = modActionsCmd({
       msg.channel.send(`No cases found for **${userName}**`);
     } else {
       const casesToDisplay = args.hidden ? cases : normalCases;
+      if (!casesToDisplay.length) {
+        msg.channel.send(
+          `No normal cases found for **${userName}**. Use "-hidden" to show ${cases.length} hidden cases.`,
+        );
+        return;
+      }
 
       if (args.expand) {
         if (casesToDisplay.length > 8) {
@@ -110,7 +116,7 @@ export const CasesUserCmd = modActionsCmd({
           const chunkStart = i * linesPerChunk + 1;
           const chunkEnd = Math.min((i + 1) * linesPerChunk, lines.length);
 
-          const embed: MessageEmbedOptions = {
+          const embed = {
             author: {
               name:
                 lineChunks.length === 1
@@ -122,7 +128,7 @@ export const CasesUserCmd = modActionsCmd({
               ...getChunkedEmbedFields(emptyEmbedValue, linesInChunk.join("\n")),
               ...(isLastChunk ? [footerField] : []),
             ],
-          };
+          } satisfies APIEmbed;
 
           msg.channel.send({ embeds: [embed] });
         }

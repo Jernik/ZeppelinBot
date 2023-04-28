@@ -1,11 +1,10 @@
-import { GuildAuditLogs } from "discord.js";
+import { AuditLogEvent } from "discord.js";
 import { LogType } from "../../../data/LogType";
-import { userToTemplateSafeUser } from "../../../utils/templateSafeObjects";
-import { safeFindRelevantAuditLogEntry } from "../../../utils/safeFindRelevantAuditLogEntry";
-import { logsEvt } from "../types";
+import { findMatchingAuditLogEntry } from "../../../utils/findMatchingAuditLogEntry";
 import { logMemberBan } from "../logFunctions/logMemberBan";
-import { isLogIgnored } from "../util/isLogIgnored";
 import { logMemberUnban } from "../logFunctions/logMemberUnban";
+import { logsEvt } from "../types";
+import { isLogIgnored } from "../util/isLogIgnored";
 
 export const LogsGuildBanAddEvt = logsEvt({
   event: "guildBanAdd",
@@ -18,9 +17,9 @@ export const LogsGuildBanAddEvt = logsEvt({
       return;
     }
 
-    const relevantAuditLogEntry = await safeFindRelevantAuditLogEntry(
-      pluginData,
-      GuildAuditLogs.Actions.MEMBER_BAN_ADD as number,
+    const relevantAuditLogEntry = await findMatchingAuditLogEntry(
+      pluginData.guild,
+      AuditLogEvent.MemberBanAdd,
       user.id,
     );
     const mod = relevantAuditLogEntry?.executor ?? null;
@@ -44,9 +43,9 @@ export const LogsGuildBanRemoveEvt = logsEvt({
       return;
     }
 
-    const relevantAuditLogEntry = await safeFindRelevantAuditLogEntry(
-      pluginData,
-      GuildAuditLogs.Actions.MEMBER_BAN_REMOVE as number,
+    const relevantAuditLogEntry = await findMatchingAuditLogEntry(
+      pluginData.guild,
+      AuditLogEvent.MemberBanRemove,
       user.id,
     );
     const mod = relevantAuditLogEntry?.executor ?? null;

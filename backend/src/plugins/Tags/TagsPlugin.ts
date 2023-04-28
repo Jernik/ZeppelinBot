@@ -2,13 +2,14 @@ import { Snowflake } from "discord.js";
 import humanizeDuration from "humanize-duration";
 import { PluginOptions } from "knub";
 import moment from "moment-timezone";
-import { StrictValidationError } from "src/validatorUtils";
+import { parseIoTsSchema, StrictValidationError } from "src/validatorUtils";
 import { GuildArchives } from "../../data/GuildArchives";
 import { GuildLogs } from "../../data/GuildLogs";
 import { GuildSavedMessages } from "../../data/GuildSavedMessages";
 import { GuildTags } from "../../data/GuildTags";
 import { mapToPublicFn } from "../../pluginUtils";
-import { convertDelayStringToMS } from "../../utils";
+import { convertDelayStringToMS, trimPluginDescription } from "../../utils";
+import { LogsPlugin } from "../Logs/LogsPlugin";
 import { TimeAndDatePlugin } from "../TimeAndDate/TimeAndDatePlugin";
 import { zeppelinGuildPlugin } from "../ZeppelinPluginBlueprint";
 import { TagCreateCmd } from "./commands/TagCreateCmd";
@@ -16,12 +17,13 @@ import { TagDeleteCmd } from "./commands/TagDeleteCmd";
 import { TagEvalCmd } from "./commands/TagEvalCmd";
 import { TagListCmd } from "./commands/TagListCmd";
 import { TagSourceCmd } from "./commands/TagSourceCmd";
+import { generateTemplateMarkdown } from "./docs";
+import { TemplateFunctions } from "./templateFunctions";
 import { ConfigSchema, TagsPluginType } from "./types";
 import { findTagByName } from "./util/findTagByName";
 import { onMessageCreate } from "./util/onMessageCreate";
 import { onMessageDelete } from "./util/onMessageDelete";
 import { renderTagBody } from "./util/renderTagBody";
-import { LogsPlugin } from "../Logs/LogsPlugin";
 
 const defaultOptions: PluginOptions<TagsPluginType> = {
   config: {
@@ -58,14 +60,25 @@ export const TagsPlugin = zeppelinGuildPlugin<TagsPluginType>()({
   showInDocs: true,
   info: {
     prettyName: "Tags",
+    description: "Tags are a way to store and reuse information.",
+    configurationGuide: trimPluginDescription(`
+      ### Template Functions
+      You can use template functions in your tags. These functions are called when the tag is rendered.
+      You can use these functions to render dynamic content, or to access information from the message and/or user calling the tag.
+      You use them by adding a \`{}\` on your tag.
+
+      Here are the functions you can use in your tags:
+
+      ${generateTemplateMarkdown(TemplateFunctions)}
+    `),
+    configSchema: ConfigSchema,
   },
 
-  configSchema: ConfigSchema,
   dependencies: () => [LogsPlugin],
   defaultOptions,
 
   // prettier-ignore
-  commands: [
+  messageCommands: [
     TagEvalCmd,
     TagDeleteCmd,
     TagListCmd,
@@ -73,22 +86,29 @@ export const TagsPlugin = zeppelinGuildPlugin<TagsPluginType>()({
     TagCreateCmd,
   ],
 
+  // prettier-ignore
+  events: [
+    onMessageDelete,
+  ],
+
   public: {
     renderTagBody: mapToPublicFn(renderTagBody),
     findTagByName: mapToPublicFn(findTagByName),
   },
 
-  configPreprocessor(options) {
-    if (options.config.delete_with_command && options.config.auto_delete_command) {
+  configParser(_input) {
+    const input = _input as any;
+
+    if (input.delete_with_command && input.auto_delete_command) {
       throw new StrictValidationError([
         `Cannot have both (global) delete_with_command and global_delete_invoke enabled`,
       ]);
     }
 
     // Check each category for conflicting options
-    if (options.config?.categories) {
-      for (const [name, opts] of Object.entries(options.config.categories)) {
-        const cat = options.config.categories[name];
+    if (input.categories) {
+      for (const [name, opts] of Object.entries(input.categories)) {
+        const cat = input.categories[name];
         if (cat.delete_with_command && cat.auto_delete_command) {
           throw new StrictValidationError([
             `Cannot have both (category specific) delete_with_command and category_delete_invoke enabled at <categories/${name}>`,
@@ -97,7 +117,7 @@ export const TagsPlugin = zeppelinGuildPlugin<TagsPluginType>()({
       }
     }
 
-    return options;
+    return parseIoTsSchema(ConfigSchema, input);
   },
 
   beforeLoad(pluginData) {
@@ -112,13 +132,10 @@ export const TagsPlugin = zeppelinGuildPlugin<TagsPluginType>()({
   },
 
   afterLoad(pluginData) {
-    const { state, guild } = pluginData;
+    const { state } = pluginData;
 
     state.onMessageCreateFn = (msg) => onMessageCreate(pluginData, msg);
     state.savedMessages.events.on("create", state.onMessageCreateFn);
-
-    state.onMessageDeleteFn = (msg) => onMessageDelete(pluginData, msg);
-    state.savedMessages.events.on("delete", state.onMessageDeleteFn);
 
     const timeAndDate = pluginData.getPlugin(TimeAndDatePlugin);
 
@@ -262,7 +279,8 @@ export const TagsPlugin = zeppelinGuildPlugin<TagsPluginType>()({
   },
 
   beforeUnload(pluginData) {
-    pluginData.state.savedMessages.events.off("create", pluginData.state.onMessageCreateFn);
-    pluginData.state.savedMessages.events.off("delete", pluginData.state.onMessageDeleteFn);
+    const { state, guild } = pluginData;
+
+    state.savedMessages.events.off("create", state.onMessageCreateFn);
   },
 });

@@ -1,31 +1,23 @@
 const fs = require("fs");
 const path = require("path");
-
-try {
-  fs.accessSync(path.resolve(__dirname, "bot.env"));
-  require("dotenv").config({ path: path.resolve(__dirname, "bot.env") });
-} catch {
-  try {
-    fs.accessSync(path.resolve(__dirname, "api.env"));
-    require("dotenv").config({ path: path.resolve(__dirname, "api.env") });
-  } catch {
-    throw new Error("bot.env or api.env required");
-  }
-}
+const pkgUp = require("pkg-up");
+const { backendDir } = require("./dist/backend/src/paths");
+const { env } = require("./dist/backend/src/env");
 
 const moment = require("moment-timezone");
 moment.tz.setDefault("UTC");
 
-const entities = path.relative(process.cwd(), path.resolve(__dirname, "dist/backend/src/data/entities/*.js"));
-const migrations = path.relative(process.cwd(), path.resolve(__dirname, "dist/backend/src/migrations/*.js"));
-const migrationsDir = path.relative(process.cwd(), path.resolve(__dirname, "src/migrations"));
+const entities = path.relative(process.cwd(), path.resolve(backendDir, "dist/backend/src/data/entities/*.js"));
+const migrations = path.relative(process.cwd(), path.resolve(backendDir, "dist/backend/src/migrations/*.js"));
+const migrationsDir = path.relative(process.cwd(), path.resolve(backendDir, "src/migrations"));
 
 module.exports = {
   type: "mysql",
-  host: process.env.DB_HOST,
-  username: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE,
+  host: env.DB_HOST,
+  port: env.DB_PORT,
+  username: env.DB_USER,
+  password: env.DB_PASSWORD,
+  database: env.DB_DATABASE,
   charset: "utf8mb4",
   supportBigNumbers: true,
   bigNumberStrings: true,
@@ -34,7 +26,6 @@ module.exports = {
   connectTimeout: 2000,
 
   logging: ["error", "warn"],
-  maxQueryExecutionTime: 1000,
 
   // Entities
   entities: [entities],

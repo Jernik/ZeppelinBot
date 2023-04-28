@@ -1,5 +1,5 @@
 import deepDiff from "deep-diff";
-import { either, fold } from "fp-ts/lib/Either";
+import { either, fold, isLeft } from "fp-ts/lib/Either";
 import { pipe } from "fp-ts/lib/pipeable";
 import * as t from "io-ts";
 import { noop } from "./utils";
@@ -106,6 +106,14 @@ export function validate(schema: t.Type<any>, value: any): StrictValidationError
   );
 }
 
+export function parseIoTsSchema<T extends t.Type<any>>(schema: T, value: unknown): t.TypeOf<T> {
+  const decodeResult = schema.decode(value);
+  if (isLeft(decodeResult)) {
+    throw report(decodeResult);
+  }
+  return decodeResult.right;
+}
+
 /**
  * Decodes and validates the given value against the given schema while also disallowing extra properties
  * See: https://github.com/gcanti/io-ts/issues/322
@@ -123,6 +131,7 @@ export function decodeAndValidateStrict<T extends t.HasProps>(
       (result) => {
         // Make sure there are no extra properties
         if (debug) {
+          // tslint:disable-next-line:no-console
           console.log(
             "JSON.stringify() check:",
             JSON.stringify(value) === JSON.stringify(result)

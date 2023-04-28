@@ -1,5 +1,6 @@
 import * as t from "io-ts";
-import { BasePluginType, typedGuildCommand, typedGuildEventListener } from "knub";
+import { BasePluginType, guildPluginEventListener, guildPluginMessageCommand } from "knub";
+import { SlowmodeChannel } from "../../data/entities/SlowmodeChannel";
 import { GuildLogs } from "../../data/GuildLogs";
 import { GuildSavedMessages } from "../../data/GuildSavedMessages";
 import { GuildSlowmodes } from "../../data/GuildSlowmodes";
@@ -20,10 +21,11 @@ export interface SlowmodePluginType extends BasePluginType {
     logs: GuildLogs;
     clearInterval: NodeJS.Timeout;
     serverLogs: GuildLogs;
+    channelSlowmodeCache: Map<string, SlowmodeChannel | null>;
 
     onMessageCreateFn;
   };
 }
 
-export const slowmodeCmd = typedGuildCommand<SlowmodePluginType>();
-export const slowmodeEvt = typedGuildEventListener<SlowmodePluginType>();
+export const slowmodeCmd = guildPluginMessageCommand<SlowmodePluginType>();
+export const slowmodeEvt = guildPluginEventListener<SlowmodePluginType>();

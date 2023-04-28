@@ -1,6 +1,5 @@
-import { Snowflake } from "discord.js";
+import { Snowflake, StickerFormatType, StickerType } from "discord.js";
 import { Column, Entity, PrimaryColumn } from "typeorm";
-import { createEncryptedJsonTransformer } from "../encryptedJsonTransformer";
 
 export interface ISavedMessageAttachmentData {
   id: Snowflake;
@@ -56,13 +55,13 @@ export interface ISavedMessageEmbedData {
 }
 
 export interface ISavedMessageStickerData {
-  format: string;
+  format: StickerFormatType;
   guildId: Snowflake | null;
   id: Snowflake;
   name: string;
   description: string | null;
   available: boolean | null;
-  type: string | null;
+  type: StickerType | null;
 }
 
 export interface ISavedMessageData {
@@ -93,7 +92,6 @@ export class SavedMessage {
 
   @Column({
     type: "mediumtext",
-    transformer: createEncryptedJsonTransformer<ISavedMessageData>(),
   })
   data: ISavedMessageData;
 
